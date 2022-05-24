@@ -16,7 +16,7 @@ p = 1/2
 # Define the nodes we want in our network + their starting time + their type
 nodes={} # This is a dictionary of nodes we want in our network. Keys are the nodes types, and values are a list of tuples of starting time and number of nodes 
 #nodes[starting time] = [(type of nodes , number of nodes)]
-nodes[0]=[("faulty_primary",0),("honest_node",4),("non_responding_node",0),("slow_nodes",0),("faulty_node",0),("faulty_replies_node",0)] # Nodes starting from the beginning
+nodes[0]=[("faulty_primary",0),("non_responding_node",0),("slow_nodes",0),("faulty_node",0),("faulty_replies_node",0),("moving_node",4),("honest_node",20)] # Nodes starting from the beginning
 #nodes[1]=[("faulty_primary",0),("honest_node",1),("non_responding_node",0),("slow_nodes",1),("faulty_node",1),("faulty_replies_node",0)] # Nodes starting after 2 seconds
 #nodes[2]=[("faulty_primary",0),("honest_node",0),("non_responding_node",0),("slow_nodes",2),("faulty_node",1),("faulty_replies_node",0)]
 
@@ -26,7 +26,7 @@ run_APBFT(nodes=nodes,proportion=p,checkpoint_frequency0=checkpoint_frequency,cl
 time.sleep(1) # Waiting for the network to start...
 
 # Run clients:
-requests_number = 1  # The user chooses the number of requests he wants to execute simultaneously (They are all sent to the PBFT network at the same time) - Here each request will be sent by a different client
+requests_number = 10  # The user chooses the number of requests he wants to execute simultaneously (They are all sent to the PBFT network at the same time) - Here each request will be sent by a different client
 clients_list = []
 for i in range (requests_number):
     globals()["C%s" % str(i)]=Client(i,waiting_time_before_resending_request)

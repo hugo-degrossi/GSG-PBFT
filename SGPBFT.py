@@ -1,3 +1,4 @@
+from select import select
 import threading
 from threading import Lock
 import socket
@@ -5,8 +6,12 @@ import json
 import time
 import hashlib
 from cmath import inf
+from tkinter import UNITS
 from nacl.signing import SigningKey
 from nacl.signing import VerifyKey
+import random
+import haversine as hs
+from haversine import Unit
 
 ports_file = "ports.json"
 with open(ports_file):
@@ -123,6 +128,8 @@ def run_nodes(nodes):
                 node_type = tuple[0]
                 if (node_type=="honest_node"):
                     node=HonestNode(node_id=j)
+                elif (node_type=="moving_node"):
+                    node=MovingNode(node_id=j)
                 elif (node_type=="non_responding_node"):
                     node=NonRespondingNode(node_id=j)
                 elif (node_type=="faulty_primary"):
@@ -133,6 +140,7 @@ def run_nodes(nodes):
                     node=FaultyNode(node_id=j)
                 elif (node_type=="faulty_replies_node"):
                     node=FaultyRepliesNode(node_id=j)
+
                 threading.Thread(target=node.receive,args=()).start()
                 nodes_list.append(node)
                 the_nodes_ids_list.append(j)
@@ -140,7 +148,8 @@ def run_nodes(nodes):
                 processed_messages.append(0)
                 messages_processing_rate.append(0) # Initiated with 0
                 scores.append(100) # Scores are initialized with 100
-                if waiting_time == 0 and (initial_nodes<proportion_initial_nodes  or initial_nodes<4):
+                #if waiting_time == 0 and (initial_nodes<proportion_initial_nodes  or initial_nodes<15):
+                if waiting_time == 0:
                     consensus_nodes.append(j)
                     initial_nodes = initial_nodes + 1
                     n = n + 1
@@ -293,8 +302,11 @@ class Node():
         self.replies_time = {} # This is a dictionary of the accepted preprepare messages with the time they were replied to. The dictionary has the form : {"request": ["reply",replying_time]...}. the request is discarded once it is executed.
         self.received_view_changes = {} # Dictionary of received view-change messages (+ the view change the node itself sent) if the node is the primary node in the new view, it has the form: {new_view_number:[list_of_view_change_messages]}
         self.asked_view_change = [] # view numbers the node asked for
-
+        self.coordinates = [(28.,77.)]
         self.received_prepare = {}  # The master node stores, for each request the node that answered and the results they sent, it had the form: self.received_prepare = {request:(node_id,result)}
+
+    def check_coordinates(self):
+        self.coordinates.append((random.uniform(27.99995, 28.00005),random.uniform(76.99995, 77.00005)))
 
     def process_received_message(self,received_message,waiting_time):
             global total_processed_messages
@@ -463,10 +475,19 @@ class Node():
 
                                 results = self.received_prepare[request]
 
-                
+
                                 for tuple in results:
                                     node_id  = tuple [0]
                                     result = tuple [1]
+                                    coordinates = nodes_list[node_id].coordinates
+                                    
+                                    if len(coordinates) >= 5:
+                                        #print(hs.haversine(coordinates[-5], coordinates[-1], unit=Unit.METERS))
+                                        distance = hs.haversine(coordinates[-5], coordinates[-1], unit=Unit.METERS)
+
+                                        if distance > 10 :
+                                            scores[node_id] -= 5
+
                              
                                     if result !=accepted_response :
                                         scores[node_id] -= 5
@@ -687,6 +708,7 @@ class Node():
             s = self.socket
             c,_ = s.accept()
             received_message = c.recv(2048)
+            self.check_coordinates()
             #print("Node %d got message: %s" % (self.node_id , received_message))
             [received_message,public_key] = received_message.split(b'split')
 
@@ -937,14 +959,24 @@ class Node():
         return reply
                              
 class HonestNode(Node):
+
+    def receive(self,waiting_time=0):
+        Node.receive(self,waiting_time)
+
+class MovingNode(Node):
+    def check_coordinates(self):
+        self.coordinates.append((random.uniform(27.99, 28.01),random.uniform(76.99, 77.01)))
+
     def receive(self,waiting_time=0):
         Node.receive(self,waiting_time)
 
 class SlowNode(Node):
+        
     def receive(self,waiting_time=1):
         Node.receive(self,waiting_time)
 
 class NonRespondingNode(Node):
+        
     def receive(self):
         while True:
             s=self.socket
@@ -954,7 +986,8 @@ class NonRespondingNode(Node):
             sender_socket.close()
             # receives messages but doesn't do anything
           
-class FaultyPrimary(Node): # This node changes the client's request digest while sending a preprepare message
+class FaultyPrimary(Node): # This node changes the client's request digest while sending a preprepare messagex
+        
     def receive(self,waiting_time=0):
         Node.receive(self,waiting_time)
     def broadcast_preprepare_message(self,request_message,nodes_ids_list): # The primary node prepares and broadcats a PREPREPARE message
