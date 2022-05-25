@@ -149,7 +149,7 @@ def run_nodes(nodes):
                 messages_processing_rate.append(0) # Initiated with 0
                 scores.append(100) # Scores are initialized with 100
                 #if waiting_time == 0 and (initial_nodes<proportion_initial_nodes  or initial_nodes<15):
-                if waiting_time == 0:
+                if waiting_time == 0 and (initial_nodes<proportion_initial_nodes  or initial_nodes<15):
                     consensus_nodes.append(j)
                     initial_nodes = initial_nodes + 1
                     n = n + 1
@@ -166,12 +166,16 @@ def update_consensus_nodes():    # We only keep nodes with the highest scores, w
     global consensus_nodes
     #global new_nodes
     min_nodes=4
-    max_nodes=int(len(the_nodes_ids_list)*p)
+    #max_nodes=int(len(the_nodes_ids_list)*p)
+    max_nodes=17
     remaining_nodes_scores = []
     for i in range (len(scores)):
         remaining_nodes_scores.append(scores[i])
     
     consensus_nodes = []
+
+    print('test1')
+    print(consensus_nodes)
 
     for i in range (min_nodes):
         if len(remaining_nodes_scores) > 0:
@@ -181,6 +185,9 @@ def update_consensus_nodes():    # We only keep nodes with the highest scores, w
                     consensus_nodes.append(j)
                     if (max_score in remaining_nodes_scores):
                         remaining_nodes_scores.remove(max_score)
+
+    print('test2')
+    print(consensus_nodes)
 
     while (min_nodes<max_nodes and len(remaining_nodes_scores) > 0 and max(remaining_nodes_scores)>=0):
         for i in range (min_nodes,max_nodes):
@@ -193,6 +200,8 @@ def update_consensus_nodes():    # We only keep nodes with the highest scores, w
                             remaining_nodes_scores.remove(max_score)
 
   
+
+    print('test3')
 
     # Put other nodes in slow nodes set:
     global candidate_nodes
@@ -234,10 +243,12 @@ def reply_received(request,reply): # This method tells the nodes that the client
         print("Network validated %d requests within %f seconds" % (processed_requests,last_reply_time-first_reply_time))
 
     # Update consensus nodes every 50 requests
-    if (processed_requests % 50 == 0):
+    if (processed_requests % 3 == 0):
         update_consensus_nodes()
 
     print(scores)
+    print(consensus_nodes)
+    print([x.node_id for x in nodes_list])
 
     return number_of_messages[request]
 '''
@@ -302,11 +313,21 @@ class Node():
         self.replies_time = {} # This is a dictionary of the accepted preprepare messages with the time they were replied to. The dictionary has the form : {"request": ["reply",replying_time]...}. the request is discarded once it is executed.
         self.received_view_changes = {} # Dictionary of received view-change messages (+ the view change the node itself sent) if the node is the primary node in the new view, it has the form: {new_view_number:[list_of_view_change_messages]}
         self.asked_view_change = [] # view numbers the node asked for
-        self.coordinates = [(28.,77.)]
         self.received_prepare = {}  # The master node stores, for each request the node that answered and the results they sent, it had the form: self.received_prepare = {request:(node_id,result)}
 
+        self.coordinates = [(28.,77.), (28.,77.), (28.,77.)]
+        self.coordinates_counter = 0
+
+        self.geo_penalty = False
+        self.geo_penalty_counter = 0
+
     def check_coordinates(self):
-        self.coordinates.append((random.uniform(27.99995, 28.00005),random.uniform(76.99995, 77.00005)))
+        self.coordinates[self.coordinates_counter] = (random.uniform(27.99995, 28.00005),random.uniform(76.99995, 77.00005))
+
+        if self.coordinates_counter == 2:
+            self.coordinates_counter = 0
+        else:
+            self.coordinates_counter += 1
 
     def process_received_message(self,received_message,waiting_time):
             global total_processed_messages
@@ -475,25 +496,30 @@ class Node():
 
                                 results = self.received_prepare[request]
 
-
                                 for tuple in results:
                                     node_id  = tuple [0]
                                     result = tuple [1]
                                     coordinates = nodes_list[node_id].coordinates
-                                    
-                                    if len(coordinates) >= 5:
+                                    penalty = False
+
+                                    if len(coordinates) >= 3:
                                         #print(hs.haversine(coordinates[-5], coordinates[-1], unit=Unit.METERS))
-                                        distance = hs.haversine(coordinates[-5], coordinates[-1], unit=Unit.METERS)
-
-                                        if distance > 10 :
+                                        distance = hs.haversine(coordinates[0], coordinates[2], unit=Unit.METERS)
+                                        
+                                        if distance > 10 and not nodes_list[node_id].geo_penalty:
                                             scores[node_id] -= 5
-
+                                            penalty = True
+                                            nodes_list[node_id].geo_penalty = True
+                                        elif nodes_list[node_id].geo_penalty:
+                                            nodes_list[node_id].geo_penalty_counter += 1
+                                            if nodes_list[node_id].geo_penalty_counter == 2:
+                                                nodes_list[node_id].geo_penalty_counter = 0
+                                                nodes_list[node_id].geo_penalty = False
                              
                                     if result !=accepted_response :
                                         scores[node_id] -= 5
-                                    else:
+                                    elif not penalty:
                                         scores[node_id] += 1
-
                             
 
                                 if (sequence_number % checkpoint_frequency==0 and sequence_number not in self.checkpoints_sequence_number): # Creating a new checkpoint at each checkpoint creation period
@@ -965,7 +991,12 @@ class HonestNode(Node):
 
 class MovingNode(Node):
     def check_coordinates(self):
-        self.coordinates.append((random.uniform(27.99, 28.01),random.uniform(76.99, 77.01)))
+        self.coordinates[self.coordinates_counter] = (random.uniform(27.99, 28.01),random.uniform(76.99, 77.01))
+
+        if self.coordinates_counter == 2:
+            self.coordinates_counter = 0
+        else:
+            self.coordinates_counter += 1
 
     def receive(self,waiting_time=0):
         Node.receive(self,waiting_time)
