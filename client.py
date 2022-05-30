@@ -2,7 +2,7 @@ import socket
 import json
 import datetime
 import time
-from SGPBFT import *
+from GSGPBFT import *
 from nacl.signing import SigningKey
 from nacl.signing import VerifyKey
 
@@ -82,7 +82,7 @@ class Client: # Client's communication is synchronous: It can not send a request
                 receiving_time=time.time()
                 duration = receiving_time-sending_time
                 number_of_messages = reply_received(received_message["request"],received_message["result"])
-                print("Client %d got reply within %f seconds. The network exchanged %d messages" % (self.client_id,duration,number_of_messages))
+                #print("Client %d got reply within %f seconds. The network exchanged %d messages" % (self.client_id,duration,number_of_messages))
                 self.sent_requests_without_answer.remove(received_message["request"])
                 break
 
@@ -166,6 +166,6 @@ class Client: # Client's communication is synchronous: It can not send a request
                 receiving_time=time.time()
                 duration = receiving_time-sending_time
                 number_of_messages = reply_received(received_message["request"],received_message["result"])
-                print("Client %d got reply within %f seconds. The network exchanged %d messages" % (self.client_id,duration,number_of_messages))
+                # print("Client %d got reply within %f seconds. The network exchanged %d messages" % (self.client_id,duration,number_of_messages))
                 self.sent_requests_without_answer.remove(received_message["request"])
                 break

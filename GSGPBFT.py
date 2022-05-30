@@ -1,3 +1,4 @@
+import mailbox
 from select import select
 import threading
 from threading import Lock
@@ -12,6 +13,8 @@ from nacl.signing import VerifyKey
 import random
 import haversine as hs
 from haversine import Unit
+
+random.seed(42)
 
 ports_file = "ports.json"
 with open(ports_file):
@@ -37,10 +40,13 @@ checkpoint_vote_format_file = "messages_formats/checkpoint_vote_format.json"
 view_change_format_file = "messages_formats/view_change_format.json"
 new_view_format_file = "messages_formats/new_view_format.json"
 
-def run_APBFT(nodes,proportion,checkpoint_frequency0,clients_ports0,timer_limit_before_view_change0): # All the nodes participate in the consensus
+def run_GSGPBFT(nodes,proportion,checkpoint_frequency0,clients_ports0,timer_limit_before_view_change0): # All the nodes participate in the consensus
 
     global p
     p = proportion
+
+    global main_node
+    main_node = 0
 
     global number_of_messages
     number_of_messages = {} # This dictionary will store for each request the number of exchanged messages from preprepare to reply: number_of_messages={"request":number_of_exchanged_messages,...}
@@ -117,7 +123,8 @@ def run_nodes(nodes):
     proportion_initial_nodes = int(total_initial_nodes*p) # number of nodes to start at the beginning
 
     initial_nodes = 0 # This is the number of initial nodes, we only take a proportion and add the others to the new nodes set
-    
+    all_nodes = []
+
     # Starting nodes:
     last_waiting_time = 0
     for waiting_time in nodes:
@@ -141,24 +148,35 @@ def run_nodes(nodes):
                 elif (node_type=="faulty_replies_node"):
                     node=FaultyRepliesNode(node_id=j)
 
+             
                 threading.Thread(target=node.receive,args=()).start()
                 nodes_list.append(node)
-                the_nodes_ids_list.append(j)
-             
                 processed_messages.append(0)
                 messages_processing_rate.append(0) # Initiated with 0
-                scores.append(100) # Scores are initialized with 100
                 #if waiting_time == 0 and (initial_nodes<proportion_initial_nodes  or initial_nodes<15):
-                if waiting_time == 0 and (initial_nodes<proportion_initial_nodes  or initial_nodes<15):
-                    consensus_nodes.append(j)
-                    initial_nodes = initial_nodes + 1
-                    n = n + 1
-                    f = (n - 1) // 3
-                else:
-                    candidate_nodes.append(j)
-                #print("%s node %d started" %(node_type,j))
-                j=j+1
+                all_nodes.append(j)
+                the_nodes_ids_list.append(j)
 
+                j=j+1
+    all_nodes.remove(0)
+    random.shuffle(all_nodes)
+    all_nodes.insert(0, 0)
+    for node_id in all_nodes:
+        scores.append(100) # Scores are initialized with 100
+        if waiting_time == 0 and len(consensus_nodes) < 40:
+            consensus_nodes.append(node_id)
+            initial_nodes = initial_nodes + 1
+            n = n + 1
+            f = (n - 1) // 3
+        else:
+            candidate_nodes.append(node_id)
+        #print("%s node %d started" %(node_type,j))
+
+    consensus_nodes_type = [nodes_list[consensus_node_id].get_node_type() for consensus_node_id in consensus_nodes]
+    print(f"Honest nodes: {consensus_nodes_type.count('Honest Node')}")
+    print(f"Slow nodes: {consensus_nodes_type.count('Slow Node')}")
+    print(f"Moving nodes: {consensus_nodes_type.count('Moving Node')}")
+    print(f"Non Responding nodes: {consensus_nodes_type.count('Non Responding Node')}")
 # Update consensus nodes
 def update_consensus_nodes():    # We only keep nodes with the highest scores, with a number of nodes between min_nodes and max_nodes.
 
@@ -167,59 +185,27 @@ def update_consensus_nodes():    # We only keep nodes with the highest scores, w
     #global new_nodes
     min_nodes=4
     #max_nodes=int(len(the_nodes_ids_list)*p)
-    max_nodes=17
+    max_nodes=20
     remaining_nodes_scores = []
     for i in range (len(scores)):
         remaining_nodes_scores.append(scores[i])
     
     consensus_nodes = []
 
-    print('test1')
-    print(consensus_nodes)
+    eligible_nodes = [(i, s) for i, s in enumerate(scores) if s > 70]
+    eligible_nodes.sort(key=lambda node: node[1], reverse=True)
 
-    for i in range (min_nodes):
-        if len(remaining_nodes_scores) > 0:
-            max_score =  max(remaining_nodes_scores)
-            for j in range (len(scores)):
-                if scores[j] == max_score and len(consensus_nodes)<min_nodes:
-                    consensus_nodes.append(j)
-                    if (max_score in remaining_nodes_scores):
-                        remaining_nodes_scores.remove(max_score)
-
-    print('test2')
-    print(consensus_nodes)
-
-    while (min_nodes<max_nodes and len(remaining_nodes_scores) > 0 and max(remaining_nodes_scores)>=0):
-        for i in range (min_nodes,max_nodes):
-            if len(remaining_nodes_scores) > 0 and max(remaining_nodes_scores)>=0:
-                max_score =  max(remaining_nodes_scores)            
-                for j in range (len(scores)):
-                    if scores[j] == max_score and len(consensus_nodes)<max_nodes:
-                        consensus_nodes.append(j)
-                        if (max_score in remaining_nodes_scores):
-                            remaining_nodes_scores.remove(max_score)
-
-  
-
-    print('test3')
-
-    # Put other nodes in slow nodes set:
-    global candidate_nodes
-    candidate_nodes=[]
-
-    global candidate_nodes_scores
-    candidate_nodes_scores = []
-
-    for score in remaining_nodes_scores:
-        for j in range (len(scores)):
-            if (scores[j] == score) and (j not in candidate_nodes) and (j not in consensus_nodes):
-                candidate_nodes.append(j)
-                candidate_nodes_scores.append(score)
-                remaining_nodes_scores.remove(score)
-                break
-
-    consensus_nodes.sort()
-
+    if len(eligible_nodes) <= min_nodes:
+        print("OH NO")
+    elif len(eligible_nodes) <= max_nodes:
+        consensus_nodes = [id for (id, score) in eligible_nodes]
+    elif len(eligible_nodes) > max_nodes:
+        consensus_nodes = [eligible_nodes[i][0] for i in range (0, max_nodes)]
+        
+    consensus_nodes.append(main_node)
+    # remove duplicates
+    consensus_nodes = list(dict.fromkeys(consensus_nodes))
+    
     global n
     n = len(consensus_nodes)
     global f
@@ -242,13 +228,19 @@ def reply_received(request,reply): # This method tells the nodes that the client
     if processed_requests%5 == 0 : # We want to stop counting at 100 for example
         print("Network validated %d requests within %f seconds" % (processed_requests,last_reply_time-first_reply_time))
 
-    # Update consensus nodes every 50 requests
-    if (processed_requests % 3 == 0):
+    # Update consensus nodes every 30 requests
+    if (processed_requests % 30 == 0):
         update_consensus_nodes()
+        # to do add print for node quality
+        consensus_nodes_type = [nodes_list[consensus_node_id].get_node_type() for consensus_node_id in consensus_nodes]
+        print(f"Honest nodes: {consensus_nodes_type.count('Honest Node')}")
+        print(f"Slow nodes: {consensus_nodes_type.count('Slow Node')}")
+        print(f"Moving nodes: {consensus_nodes_type.count('Moving Node')}")
+        print(f"Non Responding nodes: {consensus_nodes_type.count('Non Responding Node')}")
 
-    print(scores)
-    print(consensus_nodes)
-    print([x.node_id for x in nodes_list])
+    #print(scores)
+    #print(consensus_nodes)
+    #print([x.node_id for x in nodes_list])
 
     return number_of_messages[request]
 '''
@@ -320,6 +312,12 @@ class Node():
 
         self.geo_penalty = False
         self.geo_penalty_counter = 0
+
+
+        self.last_response_time = 0
+
+    def get_node_type(self):
+        return "Node"
 
     def check_coordinates(self):
         self.coordinates[self.coordinates_counter] = (random.uniform(27.99995, 28.00005),random.uniform(76.99995, 77.00005))
@@ -985,11 +983,17 @@ class Node():
         return reply
                              
 class HonestNode(Node):
+    def get_node_type(self):
+        return "Honest Node"
 
-    def receive(self,waiting_time=0):
+    def receive(self,waiting_time=random.randint(0,200)):
+        self.last_response_time = waiting_time
         Node.receive(self,waiting_time)
 
 class MovingNode(Node):
+    def get_node_type(self):
+        return "Moving Node"
+
     def check_coordinates(self):
         self.coordinates[self.coordinates_counter] = (random.uniform(27.99, 28.01),random.uniform(76.99, 77.01))
 
@@ -998,15 +1002,21 @@ class MovingNode(Node):
         else:
             self.coordinates_counter += 1
 
-    def receive(self,waiting_time=0):
+    def receive(self,waiting_time=random.randint(200,500)):
+        self.last_response_time = waiting_time
         Node.receive(self,waiting_time)
 
 class SlowNode(Node):
+    def get_node_type(self):
+        return "Slow Node"
         
-    def receive(self,waiting_time=1):
+    def receive(self,waiting_time=random.randint(200,500)):
+        self.last_response_time = waiting_time
         Node.receive(self,waiting_time)
 
 class NonRespondingNode(Node):
+    def get_node_type(self):
+        return "Non Responding Node"
         
     def receive(self):
         while True:
@@ -1019,7 +1029,8 @@ class NonRespondingNode(Node):
           
 class FaultyPrimary(Node): # This node changes the client's request digest while sending a preprepare messagex
         
-    def receive(self,waiting_time=0):
+    def receive(self,waiting_time=random.randint(0,1000)):
+        self.last_response_time = waiting_time
         Node.receive(self,waiting_time)
     def broadcast_preprepare_message(self,request_message,nodes_ids_list): # The primary node prepares and broadcats a PREPREPARE message
         with open(preprepare_format_file):
@@ -1059,7 +1070,8 @@ class FaultyPrimary(Node): # This node changes the client's request digest while
         self.broadcast_message(nodes_ids_list,preprepare_message)
 
 class FaultyNode(Node): # This node changes digest in prepare message
-    def receive(self,waiting_time=0):
+    def receive(self,waiting_time=random.randint(0,1000)):
+        self.last_response_time = waiting_time
         Node.receive(self,waiting_time)
     def broadcast_prepare_message(self,preprepare_message,nodes_ids_list): # The node broadcasts a prepare message
         if (replied_requests[preprepare_message["request"]]==0):
@@ -1095,7 +1107,8 @@ class FaultyNode(Node): # This node changes digest in prepare message
             return prepare_message
 
 class FaultyRepliesNode(Node): # This node sends a fauly reply to the client
-    def receive(self,waiting_time=0):
+    def receive(self,waiting_time=random.randint(0,1000)):
+        self.last_response_time = waiting_time
         Node.receive(self,waiting_time)
     def send_reply_message_to_client (self,response_message):
         client_id = response_message["client_id"]
